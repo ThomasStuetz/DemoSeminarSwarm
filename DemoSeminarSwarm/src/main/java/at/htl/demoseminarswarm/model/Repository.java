@@ -1,16 +1,15 @@
 package at.htl.demoseminarswarm.model;
 
 import javax.annotation.PostConstruct;
-import javax.ejb.Singleton;
 import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.context.Destroyed;
+import javax.enterprise.context.Initialized;
+import javax.enterprise.event.Observes;
 import javax.json.*;
 import javax.json.stream.JsonParser;
 import java.io.InputStream;
 import java.io.StringReader;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.List;
-import java.util.ListIterator;
+import java.util.*;
 
 @ApplicationScoped
 public class Repository {
@@ -22,7 +21,7 @@ public class Repository {
     }
 
     public JsonObject getPersonAtIndex(int index) {
-        if(index > repository.size() - 1) {
+        if (index > repository.size() - 1) {
             return null;
         }
         return repository.getJsonObject(index);
@@ -33,24 +32,87 @@ public class Repository {
     }
 
     public JsonObject getLast() {
-        return repository.getJsonObject(repository.size()-1);
+        return repository.getJsonObject(repository.size() - 1);
     }
 
-    public boolean add(JsonObject person) {
-        return repository.add(person);
+    public int add(JsonObject person) {
+
+        if (!person.containsKey("id")) {
+            person = addIdToJsonObject(person, nextId());
+        }
+        repository.add(person);
+        int index = repository.indexOf(person);
+        return index;
+
+    }
+
+    public void delete(int index) {
+        repository.remove(index);
+    }
+
+    public int update(JsonObject person) {
+        int id = person.getInt("id");
+        for (JsonValue personJson : repository) {
+            JsonObject p = ((JsonObject) personJson);
+            if (p.getInt("id") == person.getInt("id")) {
+                int index = repository.indexOf(personJson);
+                repository.remove(index);
+                repository.add(index, p);
+                return index;
+            }
+        }
+        return -1;
     }
 
 //    public boolean addAtIndex(int index, JsonObject person) {
 //        return repository.add(index, person.);
 //    }
 
-    @PostConstruct
-    private void init() {
+    // https://rmannibucau.wordpress.com/2015/03/10/cdi-and-startup/
+    public void init(@Observes @Initialized(ApplicationScoped.class) Object init) {
         System.out.println("********** PostConstruct ***************");
         initRepo();
         for (JsonValue jsonValue : repository) {
             System.out.println(jsonValue.toString());
         }
+    }
+
+//    public void destroy(@Observes @Destroyed(ApplicationScoped.class) Object init) {
+//        repository.clear();
+//    }
+
+    /**
+     * Da jedes JsonObject immutable ist, muss es neu erstellt werden, wenn ein neues Feld hinzukommt
+     * <p>
+     * <p>
+     * // http://stackoverflow.com/questions/26346060/javax-json-add-new-jsonnumber-to-existing-jsonobject
+     *
+     * @param jo
+     * @param id
+     * @return
+     */
+    private JsonObject addIdToJsonObject(JsonObject jo, int id) {
+        JsonObjectBuilder job = Json.createObjectBuilder();
+
+        for (Map.Entry<String, JsonValue> entry : jo.entrySet()) {
+            job.add(entry.getKey(), entry.getValue());
+        }
+
+        job.add("id", id).build();
+        return job.build();
+    }
+
+    private int nextId() {
+        int maxId = -1;
+        for (JsonValue person : repository) {
+            JsonObject jsonPerson = (JsonObject) person;
+            if (jsonPerson.containsKey("id")) {
+                if (jsonPerson.getInt("id") > maxId) {
+                    maxId = jsonPerson.getInt("id");
+                }
+            }
+        }
+        return maxId;
     }
 
     private void initRepo() {

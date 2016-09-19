@@ -1,79 +1,74 @@
 package at.htl.demoseminarswarm.model;
 
-import javax.annotation.PostConstruct;
 import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.context.Destroyed;
 import javax.enterprise.context.Initialized;
 import javax.enterprise.event.Observes;
 import javax.json.*;
-import javax.json.stream.JsonParser;
-import java.io.InputStream;
 import java.io.StringReader;
 import java.util.*;
 
 @ApplicationScoped
 public class Repository {
 
-    JsonArray repository;
+    List<Person> repository;
 
-    public JsonArray getRepository() {
+    public List<Person> getRepository() {
         return repository;
     }
 
-    public JsonObject getPersonAtIndex(int index) {
+    public Person getPersonAtIndex(int index) {
         if (index > repository.size() - 1) {
             return null;
         }
-        return repository.getJsonObject(index);
+        return repository.get(index);
     }
 
-    public JsonObject getFirst() {
-        return repository.getJsonObject(0);
+    public Person getFirst() {
+        return repository.get(0);
     }
 
-    public JsonObject getLast() {
-        return repository.getJsonObject(repository.size() - 1);
+    public Person getLast() {
+        return repository.get(repository.size() - 1);
     }
 
-    public int add(JsonObject person) {
-
-        if (!person.containsKey("id")) {
-            person = addIdToJsonObject(person, nextId());
+    /**
+     * Gibt es bereits eine Person mit dieser id, wird die bestehende Person durch die neue Person ersetzt,
+     * ansonsten wird die Person nach id eingeordnet
+     *
+     * @param person
+     * @return
+     */
+    public int merge(Person person) {
+        Person existing = findById(person.getId());
+        if (existing != null) {
+            existing = person;
+        } else {
+            for (Person current : repository) {
+                if (current.getId() > person.getId()) {
+                    int index = repository.indexOf(current);
+                    repository.add(index, person);
+                    return index;
+                }
+            }
+            repository.add(person);
         }
-        repository.add(person);
         int index = repository.indexOf(person);
         return index;
 
     }
 
-    public void delete(int index) {
-        repository.remove(index);
+    public void delete(int id) {
+        repository.remove(findById(id));
     }
 
-    public int update(JsonObject person) {
-        int id = person.getInt("id");
-        for (JsonValue personJson : repository) {
-            JsonObject p = ((JsonObject) personJson);
-            if (p.getInt("id") == person.getInt("id")) {
-                int index = repository.indexOf(personJson);
-                repository.remove(index);
-                repository.add(index, p);
-                return index;
-            }
-        }
-        return -1;
-    }
 
-//    public boolean addAtIndex(int index, JsonObject person) {
-//        return repository.add(index, person.);
-//    }
-
+    //@PostConstruct
     // https://rmannibucau.wordpress.com/2015/03/10/cdi-and-startup/
     public void init(@Observes @Initialized(ApplicationScoped.class) Object init) {
         System.out.println("********** PostConstruct ***************");
         initRepo();
-        for (JsonValue jsonValue : repository) {
-            System.out.println(jsonValue.toString());
+        for (Person person : repository) {
+            System.out.println(person.toString());
         }
     }
 
@@ -81,38 +76,51 @@ public class Repository {
 //        repository.clear();
 //    }
 
-    /**
-     * Da jedes JsonObject immutable ist, muss es neu erstellt werden, wenn ein neues Feld hinzukommt
-     * <p>
-     * <p>
-     * // http://stackoverflow.com/questions/26346060/javax-json-add-new-jsonnumber-to-existing-jsonobject
-     *
-     * @param jo
-     * @param id
-     * @return
-     */
-    private JsonObject addIdToJsonObject(JsonObject jo, int id) {
-        JsonObjectBuilder job = Json.createObjectBuilder();
+//    /**
+//     * Da jedes JsonObject immutable ist, muss es neu erstellt werden, wenn ein neues Feld hinzukommt
+//     * <p>
+//     * <p>
+//     * // http://stackoverflow.com/questions/26346060/javax-json-add-new-jsonnumber-to-existing-jsonobject
+//     *
+//     * @param jo
+//     * @param id
+//     * @return
+//     */
+//    private JsonObject addIdToJsonObject(JsonObject jo, int id) {
+//        JsonObjectBuilder job = Json.createObjectBuilder();
+//
+//        for (Map.Entry<String, JsonValue> entry : jo.entrySet()) {
+//            job.add(entry.getKey(), entry.getValue());
+//        }
+//
+//        job.add("id", id).build();
+//        return job.build();
+//    }
 
-        for (Map.Entry<String, JsonValue> entry : jo.entrySet()) {
-            job.add(entry.getKey(), entry.getValue());
-        }
-
-        job.add("id", id).build();
-        return job.build();
-    }
-
-    private int nextId() {
-        int maxId = -1;
-        for (JsonValue person : repository) {
-            JsonObject jsonPerson = (JsonObject) person;
-            if (jsonPerson.containsKey("id")) {
-                if (jsonPerson.getInt("id") > maxId) {
-                    maxId = jsonPerson.getInt("id");
-                }
+    public Person findById(int id) {
+        for (Person person : repository) {
+            if (person.getId() == id) {
+                return person;
             }
         }
-        return maxId;
+        return null;
+    }
+
+    public int nextId() {
+        return getLast().getId() + 1;
+    }
+
+    public Person createObjectFromJson(JsonObject json) {
+        return new Person(
+                !json.containsKey("id") ? nextId() : json.getInt("id"),
+                !json.containsKey("gender") ? Gender.NOT_AVAILABLE : Gender.valueOf(json.getString("gender")),
+                !json.containsKey("firstname") ? "n/a" : json.getString("firstname"),
+                !json.containsKey("lastname") ? "n/a" : json.getString("lastname"),
+                !json.containsKey("email") ? null : json.getString("email"),
+                !json.containsKey("country") ? null : json.getString("country"),
+                !json.containsKey("age") ? null : json.getInt("age"),
+                !json.containsKey("registered") ? null : json.getBoolean("registered")
+        );
     }
 
     private void initRepo() {
@@ -218,6 +226,10 @@ public class Repository {
                 "{\"id\":100,\"gender\":\"M\",\"firstname\":\"Nicholas\",\"lastname\":\"Dean\",\"email\":\"ndean2r@sfgate.com\",\"country\":\"Turkmenistan\",\"age\":58,\"registered\":true}]";
 
         JsonReader jsonReader = Json.createReader(new StringReader(personData));
-        repository = jsonReader.readArray();
+        JsonArray personJsonArray = jsonReader.readArray();
+        repository = new LinkedList<>();
+        for (JsonValue jsonValuePerson : personJsonArray) {
+            repository.add(createObjectFromJson((JsonObject) jsonValuePerson));
+        }
     }
 }
